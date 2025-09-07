@@ -55,7 +55,6 @@ class XttsApp(Gtk.Application):
         if status == "success":
             print("TTS model successfully loaded.")
             self.generate_button.set_sensitive(True)
-            self.text_view.set_sensitive(True)
             self.generate_button.set_label("生成语音")
             self.generate_button.connect("clicked", self._on_generate_clicked)
         else:
@@ -114,9 +113,8 @@ class XttsApp(Gtk.Application):
 
         self.text_view = Gtk.TextView()
         self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.text_view.set_sensitive(False)  # Disable initially
+        self.text_view.grab_focus()
         input_scrolled_window.set_child(self.text_view)
-        self.text_view.connect("notify::cursor-position", self._on_cursor_position_changed)
 
         # Add a spinner for loading indication
         self.spinner = Gtk.Spinner()
@@ -178,39 +176,6 @@ class XttsApp(Gtk.Application):
         thread = threading.Thread(target=self._load_model)
         thread.daemon = True  # Allows main thread to exit even if this thread is running
         thread.start()
-
-    def _on_cursor_position_changed(self, text_view, _):
-        buffer = text_view.get_buffer()
-        cursor_iter = buffer.get_iter_at_mark(buffer.get_insert())
-        location = text_view.get_iter_location(cursor_iter)
-
-        # Convert the location to window coordinates
-        buffer_x, buffer_y = text_view.buffer_to_window_coords(
-            Gtk.TextWindowType.WIDGET,
-            location.x,
-            location.y
-        )
-
-        # Get the position of the TextView relative to the window
-        root = text_view.get_root()
-        if root:
-            alloc = text_view.get_allocation()
-            # Translate to root window coordinates
-            root_x, root_y = text_view.translate_coordinates(root, alloc.x, alloc.y)
-            final_x = root_x + buffer_x
-            final_y = root_y + buffer_y + location.height # Position below the cursor
-
-            # Create a Gdk.Rectangle for the cursor position
-            cursor_rect = Gdk.Rectangle()
-            cursor_rect.x = int(final_x)
-            cursor_rect.y = int(final_y)
-            cursor_rect.width = 1
-            cursor_rect.height = location.height
-
-            # Notify the input method context
-            im_context = text_view.get_im_context()
-            if im_context:
-                im_context.set_cursor_location(cursor_rect)
 
     def select_speaker_clicked(self, button):
         dialog = Gtk.FileChooserNative(
@@ -276,7 +241,6 @@ class XttsApp(Gtk.Application):
             self.spinner.start()
             self.generate_button.set_sensitive(False)
             self.generate_button.set_label("正在生成...")
-            self.text_view.set_sensitive(False)
 
             thread = threading.Thread(
                 target=self._generate_speech_worker,
@@ -309,7 +273,6 @@ class XttsApp(Gtk.Application):
         self.spinner.stop()
         self.generate_button.set_sensitive(True)
         self.generate_button.set_label("生成语音")
-        self.text_view.set_sensitive(True)
 
         if status == "success":
             file_path = message["file_path"]
@@ -337,15 +300,15 @@ class XttsApp(Gtk.Application):
         short_text = full_text.replace('\n', ' ').strip()
         if len(short_text) > 35:
             short_text = short_text[:35] + "..."
-        
+
         label = Gtk.Label(label=short_text, halign=Gtk.Align.START, margin_top=5, margin_bottom=5)
-        
+
         row = Gtk.ListBoxRow()
         row.set_child(label)
-        
+
         # Store the full original text within the row widget itself
         row.full_text = full_text
-        
+
         self.history_list_box.insert(row, 0)
 
     def _on_history_row_activated(self, list_box, row):
