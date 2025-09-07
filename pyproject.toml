@@ -18,3 +18,6 @@ tts = [
 
 [tool.pyright]
 typeCheckingMode = "basic"
+
+[tool.setuptools]
+py-modules = ["main", "settings", "tts_installer"]
