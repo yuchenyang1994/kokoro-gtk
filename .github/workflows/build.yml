@@ -48,12 +48,18 @@ jobs:
         run: |
           echo "Building for Linux..."
           # Run PyInstaller to create the executable
-          pyinstaller main.py --name xtts-gtk --onefile --noconsole --clean
+          pyinstaller xtts-gtk.spec
 
           # Create AppDir structure
           APP_DIR="AppDir"
           mkdir -p "${APP_DIR}/usr/bin"
+          mkdir -p "${APP_DIR}/usr/share/icons/hicolor/256x256/apps"
           cp "dist/xtts-gtk" "${APP_DIR}/usr/bin/"
+          cp "logo.png" "${APP_DIR}/usr/share/icons/hicolor/256x256/apps/xtts-gtk.png"
+          cp "logo.png" "${APP_DIR}/xtts-gtk.png"
+
+          # Create symlink for icon in root AppDir
+          ln -sf "usr/share/icons/hicolor/256x256/apps/xtts-gtk.png" "${APP_DIR}/xtts-gtk.png"
 
           # Create AppRun script
           cat << 'EOF' > "${APP_DIR}/AppRun"
@@ -64,13 +70,13 @@ jobs:
           chmod +x "${APP_DIR}/AppRun"
 
           # Create .desktop file
-          cat << 'EOF' > "${APP_DIR}/wetts.desktop"
+          cat << 'EOF' > "${APP_DIR}/xtts-gtk.desktop"
           [Desktop Entry]
           Name=XTTS-GTK
           Exec=xtts-gtk
           Icon=xtts-gtk
           Type=Application
-          Categories=Utility;
+          Categories=AudioVideo;Audio;Speech;
           EOF
 
           # Download appimagetool
@@ -84,6 +90,9 @@ jobs:
           # Generate AppImage
           ./appimagetool "${APP_DIR}" "xtts-gtk-x86_64.AppImage"
 
+          # Cleanup temporary files
+          rm -rf "${APP_DIR}" appimagetool
+
       - name: Build for macOS
         if: runner.os == 'macOS'
         run: |
@@ -92,13 +101,70 @@ jobs:
           export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
           export DYLD_LIBRARY_PATH="/usr/local/lib:/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
           export GI_TYPELIB_PATH="/usr/local/lib/girepository-1.0:/opt/homebrew/lib/girepository-1.0:$GI_TYPELIB_PATH"
-          
+          export G_ENABLE_DIAGNOSTIC=0
+          export GTK_DEBUG=interactive
+
+          # Verify GTK4 installation
+          echo "Checking GTK4 installation..."
+          pkg-config --modversion gtk4 || echo "GTK4 pkg-config not found"
+          ls -la /opt/homebrew/lib/girepository-1.0/ | grep -i gtk || echo "GTK typelibs not found in homebrew path"
+          ls -la /usr/local/lib/girepository-1.0/ | grep -i gtk || echo "GTK typelibs not found in local path"
+
           # Run PyInstaller to create the .app bundle with additional options for macOS
-          pyinstaller main.py --name xtts-gtk --onefile --windowed --clean \
-            --hidden-import gi.repository.Gtk \
-            --hidden-import gi.repository.GObject \
-            --hidden-import gi.repository.GLib \
-            --collect-all gi
+          echo "Running PyInstaller with spec file..."
+          pyinstaller xtts-gtk.spec || {
+            echo "PyInstaller failed, trying with additional hidden imports..."
+            pyinstaller main.py --name xtts-gtk --onefile --windowed --clean \
+              --hidden-import gi.repository.Gtk \
+              --hidden-import gi.repository.GObject \
+              --hidden-import gi.repository.GLib \
+              --hidden-import gi.repository.Gdk \
+              --hidden-import gi.repository.Gio \
+              --collect-all gi
+          }
+
+          # Copy icon to the .app bundle
+          mkdir -p "dist/xtts-gtk.app/Contents/Resources"
+          cp "logo.png" "dist/xtts-gtk.app/Contents/Resources/"
+
+          # Create proper icon file for macOS (convert to .icns format)
+          # First create iconset directory
+          mkdir -p "xtts-gtk.iconset"
+          sips -z 16 16     "logo.png" --out "xtts-gtk.iconset/icon_16x16.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_16x16@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_32x32.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 64 64     "logo.png" --out "xtts-gtk.iconset/icon_32x32@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 128 128   "logo.png" --out "xtts-gtk.iconset/icon_128x128.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_128x128@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_256x256.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_256x256@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_512x512.png" 2>/dev/null || echo "sips not available, using original icon"
+          sips -z 1024 1024 "logo.png" --out "xtts-gtk.iconset/icon_512x512@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+
+          # Convert iconset to icns if files exist
+          if [ -f "xtts-gtk.iconset/icon_16x16.png" ] && command -v iconutil >/dev/null 2>&1; then
+            iconutil -c icns "xtts-gtk.iconset"
+          else
+            echo "iconutil not available or icon files missing, using png directly"
+          fi
+
+          # Copy icns file to app bundle if it exists
+          if [ -f "xtts-gtk.icns" ]; then
+            cp "xtts-gtk.icns" "dist/xtts-gtk.app/Contents/Resources/"
+            ICON_FILE="xtts-gtk.icns"
+          else
+            cp "logo.png" "dist/xtts-gtk.app/Contents/Resources/"
+            ICON_FILE="logo.png"
+          fi
+
+          # Update Info.plist to include icon file
+          defaults write "$(pwd)/dist/xtts-gtk.app/Contents/Info" CFBundleIconFile "$ICON_FILE"
+
+          # Cleanup temporary icon files
+          rm -rf "xtts-gtk.iconset"
+          if [ -f "xtts-gtk.icns" ]; then
+            rm "xtts-gtk.icns"
+          fi
 
           # Create a DMG file
           # Note: The .app bundle is created in dist/xtts-gtk.app
