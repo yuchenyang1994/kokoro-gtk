@@ -47,6 +47,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Building for Linux..."
+          echo "Cleaning previous build artifacts..."
+          rm -rf dist build __pycache__
           echo "Verifying GTK4 installation..."
           pkg-config --modversion gtk4 || echo "GTK4 pkg-config not found"
           ls -la /usr/lib/girepository-1.0/ | grep -i gtk || echo "GTK typelibs not found"
@@ -119,6 +121,10 @@ jobs:
           export G_ENABLE_DIAGNOSTIC=0
           export GTK_DEBUG=interactive
 
+          # Clean previous build artifacts
+          echo "Cleaning previous build artifacts..."
+          rm -rf dist build __pycache__
+
           # Verify GTK4 installation
           echo "Checking GTK4 installation..."
           pkg-config --modversion gtk4 || echo "GTK4 pkg-config not found"
@@ -140,56 +146,68 @@ jobs:
               --collect-all gi
           fi
 
+          # Check if app bundle was created successfully
+          if [ ! -d "dist/xtts-gtk.app" ]; then
+            echo "ERROR: xtts-gtk.app bundle was not created!"
+            ls -la dist/
+            exit 1
+          fi
+
           # Copy icon to the .app bundle
           mkdir -p "dist/xtts-gtk.app/Contents/Resources"
           cp "logo.png" "dist/xtts-gtk.app/Contents/Resources/"
 
-          # Create proper icon file for macOS (convert to .icns format)
-          # First create iconset directory
-          mkdir -p "xtts-gtk.iconset"
-          sips -z 16 16     "logo.png" --out "xtts-gtk.iconset/icon_16x16.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_16x16@2x.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_32x32.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 64 64     "logo.png" --out "xtts-gtk.iconset/icon_32x32@2x.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 128 128   "logo.png" --out "xtts-gtk.iconset/icon_128x128.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_128x128@2x.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_256x256.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_256x256@2x.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_512x512.png" 2>/dev/null || echo "sips not available, using original icon"
-          sips -z 1024 1024 "logo.png" --out "xtts-gtk.iconset/icon_512x512@2x.png" 2>/dev/null || echo "sips not available, using original icon"
+          # Try to create proper macOS icon if tools are available
+          if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+            echo "Creating macOS iconset..."
+            mkdir -p "xtts-gtk.iconset"
+            sips -z 16 16     "logo.png" --out "xtts-gtk.iconset/icon_16x16.png"
+            sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_16x16@2x.png"
+            sips -z 32 32     "logo.png" --out "xtts-gtk.iconset/icon_32x32.png"
+            sips -z 64 64     "logo.png" --out "xtts-gtk.iconset/icon_32x32@2x.png"
+            sips -z 128 128   "logo.png" --out "xtts-gtk.iconset/icon_128x128.png"
+            sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_128x128@2x.png"
+            sips -z 256 256   "logo.png" --out "xtts-gtk.iconset/icon_256x256.png"
+            sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_256x256@2x.png"
+            sips -z 512 512   "logo.png" --out "xtts-gtk.iconset/icon_512x512.png"
+            sips -z 1024 1024 "logo.png" --out "xtts-gtk.iconset/icon_512x512@2x.png"
 
-          # Convert iconset to icns if files exist
-          if [ -f "xtts-gtk.iconset/icon_16x16.png" ] && command -v iconutil >/dev/null 2>&1; then
+            echo "Converting to icns format..."
             iconutil -c icns "xtts-gtk.iconset"
-          else
-            echo "iconutil not available or icon files missing, using png directly"
-          fi
-
-          # Copy icns file to app bundle if it exists
-          if [ -f "xtts-gtk.icns" ]; then
             cp "xtts-gtk.icns" "dist/xtts-gtk.app/Contents/Resources/"
             ICON_FILE="xtts-gtk.icns"
+
+            # Cleanup temporary icon files
+            rm -rf "xtts-gtk.iconset"
+            rm -f "xtts-gtk.icns"
           else
+            echo "sips/iconutil not available, using PNG icon directly"
             cp "logo.png" "dist/xtts-gtk.app/Contents/Resources/"
             ICON_FILE="logo.png"
           fi
 
           # Update Info.plist to include icon file
-          defaults write "$(pwd)/dist/xtts-gtk.app/Contents/Info" CFBundleIconFile "$ICON_FILE"
-
-          # Cleanup temporary icon files
-          rm -rf "xtts-gtk.iconset"
-          if [ -f "xtts-gtk.icns" ]; then
-            rm "xtts-gtk.icns"
+          if [ -f "dist/xtts-gtk.app/Contents/Info.plist" ]; then
+            defaults write "$(pwd)/dist/xtts-gtk.app/Contents/Info" CFBundleIconFile "$ICON_FILE"
+          else
+            echo "Warning: Info.plist not found, skipping icon configuration"
           fi
 
           # Create a DMG file
           # Note: The .app bundle is created in dist/xtts-gtk.app
           # hdiutil requires the .app to be in a folder for -srcfolder
           mkdir -p macos_build
-          mv dist/xtts-gtk.app macos_build/
+          cp -r dist/xtts-gtk.app macos_build/
 
-          hdiutil create -volname "XTTS-GTK" -srcfolder "macos_build/xtts-gtk.app" -ov -format UDZO "xtts-gtk-macos.dmg"
+          echo "Creating DMG file..."
+          if hdiutil create -volname "XTTS-GTK" -srcfolder "macos_build" -ov -format UDZO "xtts-gtk-macos.dmg"; then
+            echo "DMG creation successful"
+            ls -la *.dmg
+          else
+            echo "DMG creation failed, checking what files were created..."
+            ls -la macos_build/
+            exit 1
+          fi
 
       - name: Upload Linux AppImage artifact
         if: runner.os == 'Linux'

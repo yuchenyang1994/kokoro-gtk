@@ -23,8 +23,7 @@ a = Analysis(
         'gi.overrides.Gtk',
         'gi.overrides.Gdk',
         'gi.overrides.GLib',
-        'gi.overrides.GObject',
-    ],
+        'gi.overrides.G],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['hooks/runtime_hook_gtk.py'],
@@ -65,7 +64,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         name='xtts-gtk.app',
-        icon='logo.png' if os.path.exists('logo.png') else None,
+        iconfile='logo.png' if os.path.exists('logo.png') else None,
         bundle_identifier='org.remy.xtts-gtk',
         info_plist={
             'CFBundleName': 'XTTS-GTK',
@@ -73,5 +72,7 @@ if sys.platform == 'darwin':
             'CFBundleShortVersionString': '1.0.0',
             'CFBundleVersion': '1.0.0',
             'NSHighResolutionCapable': 'True',
+            'CFBundlePackageType': 'APPL',
+            'CFBundleSignature': 'XTTS',
         },
     )
