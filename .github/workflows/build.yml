@@ -1,0 +1,102 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11'] # From .python-version
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install project dependencies from pyproject.toml
+        pip install .
+        # Install PyInstaller
+        pip install pyinstaller
+
+    - name: Build for Linux (AppImage)
+      if: runner.os == 'Linux'
+      run: |
+        echo "Building for Linux..."
+        # Run PyInstaller to create the executable
+        pyinstaller main.py --name wetts --onefile --noconsole --clean
+
+        # Create AppDir structure
+        APP_DIR="AppDir"
+        mkdir -p "${APP_DIR}/usr/bin"
+        cp "dist/wetts" "${APP_DIR}/usr/bin/"
+
+        # Create AppRun script
+        cat << 'EOF' > "${APP_DIR}/AppRun"
+        #!/bin/sh
+        HERE="$(dirname "$(readlink -f "${0}")")"
+        exec "${HERE}/usr/bin/wetts" "$@"
+        EOF
+        chmod +x "${APP_DIR}/AppRun"
+
+        # Create .desktop file
+        cat << 'EOF' > "${APP_DIR}/wetts.desktop"
+        [Desktop Entry]
+        Name=WeTTS
+        Exec=wetts
+        Icon=wetts
+        Type=Application
+        Categories=Utility;
+        EOF
+
+        # Download appimagetool
+        APPIMAGETOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+        wget -q "${APPIMAGETOOL_URL}" -O appimagetool
+        chmod +x appimagetool
+
+        # Generate AppImage
+        ./appimagetool "${APP_DIR}" "wetts-x86_64.AppImage"
+
+    - name: Build for macOS
+      if: runner.os == 'macOS'
+      run: |
+        echo "Building for macOS..."
+        # Run PyInstaller to create the .app bundle
+        pyinstaller main.py --name wetts --onefile --windowed --clean
+
+        # Create a DMG file
+        # Note: The .app bundle is created in dist/wetts.app
+        # hdiutil requires the .app to be in a folder for -srcfolder
+        mkdir -p macos_build
+        mv dist/wetts.app macos_build/
+
+        hdiutil create -volname "WeTTS" -srcfolder "macos_build/wetts.app" -ov -format UDZO "wetts-macos.dmg"
+
+    - name: Upload Linux AppImage artifact
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: wetts-linux-appimage
+        path: wetts-x86_64.AppImage
+        retention-days: 7
+
+    - name: Upload macOS DMG artifact
+      if: runner.os == 'macOS'
+      uses: actions/upload-artifact@v4
+      with:
+        name: wetts-macos-dmg
+        path: wetts-macos.dmg
+        retention-days: 7
