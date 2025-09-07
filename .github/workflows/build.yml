@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 libgtk-4-dev libglib2.0-dev gobject-introspection libgirepository-1.0-1 libgirepository-2.0-dev gir1.2-glib-2.0
+          sudo apt-get install -y libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 libgtk-4-dev libglib2.0-dev gobject-introspection libgirepository-1.0-1 libgirepository-2.0-dev gir1.2-glib-2.0 libgirepository1.0-doc
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
@@ -47,8 +47,23 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Building for Linux..."
-          # Run PyInstaller to create the executable
-          pyinstaller xtts-gtk.spec
+          echo "Verifying GTK4 installation..."
+          pkg-config --modversion gtk4 || echo "GTK4 pkg-config not found"
+          ls -la /usr/lib/girepository-1.0/ | grep -i gtk || echo "GTK typelibs not found"
+
+          # Try building with spec file first, fallback to command line if it fails
+          echo "Building with spec file..."
+          if pyinstaller xtts-gtk.spec; then
+            echo "Spec file build succeeded"
+          else
+            echo "Spec file build failed, trying command line build..."
+            pyinstaller main.py --name xtts-gtk --onefile --noconsole --clean \
+              --hidden-import gi.repository.Gtk \
+              --hidden-import gi.repository.GObject \
+              --hidden-import gi.repository.GLib \
+              --hidden-import gi.repository.Gdk \
+              --collect-all gi
+          fi
 
           # Create AppDir structure
           APP_DIR="AppDir"
@@ -76,7 +91,7 @@ jobs:
           Exec=xtts-gtk
           Icon=xtts-gtk
           Type=Application
-          Categories=AudioVideo;Audio;Speech;
+          Categories=AudioVideo;Audio;
           EOF
 
           # Download appimagetool
@@ -112,8 +127,10 @@ jobs:
 
           # Run PyInstaller to create the .app bundle with additional options for macOS
           echo "Running PyInstaller with spec file..."
-          pyinstaller xtts-gtk.spec || {
-            echo "PyInstaller failed, trying with additional hidden imports..."
+          if pyinstaller xtts-gtk.spec; then
+            echo "Spec file build succeeded"
+          else
+            echo "Spec file build failed, trying command line build..."
             pyinstaller main.py --name xtts-gtk --onefile --windowed --clean \
               --hidden-import gi.repository.Gtk \
               --hidden-import gi.repository.GObject \
@@ -121,7 +138,7 @@ jobs:
               --hidden-import gi.repository.Gdk \
               --hidden-import gi.repository.Gio \
               --collect-all gi
-          }
+          fi
 
           # Copy icon to the .app bundle
           mkdir -p "dist/xtts-gtk.app/Contents/Resources"

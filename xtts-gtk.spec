@@ -2,24 +2,6 @@
 import sys
 import os
 
-# Block PyInstaller from trying to import GTK 3.0
-sys.modules['gi.repository.Gtk'] = None
-sys.modules['gi.repository.Gdk'] = None
-
-# Now import gi and set version requirements
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Gdk', '4.0')
-gi.require_version('GLib', '2.0')
-gi.require_version('GObject', '2.0')
-gi.require_version('GioUnix', '2.0')
-
-# Clear the modules we blocked so they can be properly imported with correct versions
-if 'gi.repository.Gtk' in sys.modules:
-    del sys.modules['gi.repository.Gtk']
-if 'gi.repository.Gdk' in sys.modules:
-    del sys.modules['gi.repository.Gdk']
-
 block_cipher = None
 
 a = Analysis(
@@ -38,22 +20,15 @@ a = Analysis(
         'torch',
         'threading',
         'time',
+        'gi.overrides.Gtk',
+        'gi.overrides.Gdk',
+        'gi.overrides.GLib',
+        'gi.overrides.GObject',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['hooks/runtime_hook_gtk.py'],
-    excludes=[
-        'gi.repository.Gtk 3.0',
-        'gi.repository.Gdk 3.0',
-        'gtk-3.0',
-        'gdk-3.0',
-        'gi.repository.Gtk 2.0',
-        'gi.repository.Gdk 2.0',
-        'gtk-2.0',
-        'gdk-2.0',
-        'gi.overrides.Gtk',
-        'gi.overrides.Gdk',
-    ],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

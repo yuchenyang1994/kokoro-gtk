@@ -12,12 +12,8 @@ if not check_and_install_tts():
 # --- Step 2: Dependencies are met, now we can import and run the main app ---
 import time
 import gi
-# Set version requirements before any imports to prevent warnings
-gi.require_version("GioUnix", "2.0")
+# Set version requirements for GTK4
 gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
-gi.require_version("GLib", "2.0")
-gi.require_version("GObject", "2.0")
 import threading
 import torch
 from gi.repository import GLib, Gdk
