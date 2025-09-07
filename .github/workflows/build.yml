@@ -89,12 +89,12 @@ jobs:
           pyinstaller main.py --name xtts-gtk --onefile --windowed --clean
 
           # Create a DMG file
-          # Note: The .app bundle is created in dist/wetts.app
+          # Note: The .app bundle is created in dist/xtts-gtk.app
           # hdiutil requires the .app to be in a folder for -srcfolder
           mkdir -p macos_build
-          mv dist/wetts.app macos_build/
+          mv dist/xtts-gtk.app macos_build/
 
-          hdiutil create -volname "XTTS-GTK" -srcfolder "macos_build/wetts.app" -ov -format UDZO "xtts-gtk-macos.dmg"
+          hdiutil create -volname "XTTS-GTK" -srcfolder "macos_build/xtts-gtk.app" -ov -format UDZO "xtts-gtk-macos.dmg"
 
       - name: Upload Linux AppImage artifact
         if: runner.os == 'Linux'
