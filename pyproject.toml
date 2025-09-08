@@ -21,3 +21,8 @@ typeCheckingMode = "basic"
 
 [tool.setuptools]
 py-modules = ["main", "settings", "tts_installer"]
+
+[dependency-groups]
+dev = [
+    "pygobject-stubs>=2.13.0",
+]

@@ -1,9 +1,13 @@
 import sys
 import os
 
+# Set HF endpoint for Chinese users to download models
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 # --- Step 1: Perform dependency check before anything else ---
 # This is a blocking call that will use a temporary GTK loop if needed.
 from tts_installer import check_and_install_tts
+
 
 if not check_and_install_tts():
     print("TTS dependencies not met. Exiting.")
