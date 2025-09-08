@@ -36,7 +36,7 @@ def _run_install(window, text_buffer, text_view, on_done, loop):
     try:
         # Start the pip install process with real-time output
         process = subprocess.Popen(
-            [sys.executable, "-m", "pip", "install", "-v", "coqui-tts>=0.27.1", "coqpit-config>=0.2.1", "--i", "https://mirrors.aliyun.com/pypi/simple/"],
+            [sys.executable, "-m", "pip", "install", "-v", "coqui-tts>=0.27.1", "coqpit-config>=0.2.1"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Merge stdout and stderr
             bufsize=1,
