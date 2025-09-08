@@ -1,5 +1,10 @@
 name: Build and Release
 
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+
 on:
   push:
     branches: ["main"]
