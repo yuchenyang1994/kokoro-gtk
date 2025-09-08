@@ -1,11 +1,21 @@
-name: Build and Package
+name: Build and Release
 
 on:
   push:
     branches: ["main"]
+    tags: ["v*"] # Trigger on version tags
   pull_request:
     branches: ["main"]
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create a release after build"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 jobs:
   build:
@@ -224,3 +234,102 @@ jobs:
           name: xtts-gtk-macos-dmg
           path: xtts-gtk-macos.dmg
           retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' && contains(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xtts-gtk-linux-appimage
+          path: ./artifacts/linux/
+        continue-on-error: true
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xtts-gtk-macos-dmg
+          path: ./artifacts/macos/
+        continue-on-error: true
+
+      - name: Display structure of downloaded files
+        run: |
+          echo "Checking downloaded artifacts..."
+          ls -la ./artifacts/ || echo "No artifacts directory found"
+          ls -la ./artifacts/linux/ 2>/dev/null || echo "No Linux artifacts"
+          ls -la ./artifacts/macos/ 2>/dev/null || echo "No macOS artifacts"
+
+      - name: Generate release tag
+        id: release_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "tag=${{ github.ref }}" >> $GITHUB_OUTPUT
+            echo "name=Release ${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            # For manual trigger, create a timestamp-based tag
+            TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+            echo "tag=manual-${TIMESTAMP}" >> $GITHUB_OUTPUT
+            echo "name=Manual Release ${TIMESTAMP}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          release_name: ${{ steps.release_tag.outputs.name }}
+          body: |
+            ## XTTS-GTK Release ${{ github.ref }}
+
+            ### Downloads
+            - **Linux**: Download `xtts-gtk-x86_64.AppImage` and make it executable
+            - **macOS**: Download `xtts-gtk-macos.dmg` and install the application
+
+            ### Installation Instructions
+
+            #### Linux
+            ```bash
+            chmod +x xtts-gtk-x86_64.AppImage
+            ./xtts-gtk-x86_64.AppImage
+            ```
+
+            #### macOS
+            1. Download the DMG file
+            2. Open the DMG and drag XTTS-GTK to Applications
+            3. Run from Applications or Launchpad
+
+            ### Changes
+            See commit history for detailed changes.
+          draft: false
+          prerelease: ${{ !contains(github.ref, 'refs/tags/v') }}
+
+      - name: Upload Linux Release Asset
+        if: hashFiles('./artifacts/linux/xtts-gtk-x86_64.AppImage') != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/linux/xtts-gtk-x86_64.AppImage
+          asset_name: xtts-gtk-linux-x86_64.AppImage
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS Release Asset
+        if: hashFiles('./artifacts/macos/xtts-gtk-macos.dmg') != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/macos/xtts-gtk-macos.dmg
+          asset_name: xtts-gtk-macos.dmg
+          asset_content_type: application/octet-stream
