@@ -1,4 +1,4 @@
-# XTTS-GTK
+# Kokoro-GTK
 
 A modern GTK4-based desktop application for text-to-speech synthesis using XTTS models.
 
