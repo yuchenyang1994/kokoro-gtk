@@ -1,23 +1,14 @@
 import sys
 import os
 import ssl
-import warnings
 import requests
-import tempfile
+import certifi
 
 # Set HF endpoint for Chinese users to download models - MUST be set before importing kokoro
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from kokoro import KModel, KPipeline
 import soundfile
-
-# Configure SSL context to be more permissive for model downloads
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
 
 # --- Step 1: Perform dependency check before anything else ---
 # This is a blocking call that will use a temporary GTK loop if needed.
@@ -26,18 +17,18 @@ from tts_installer import check_and_install_tts
 
 if not check_and_install_tts():
     print("TTS dependencies not met. Exiting.")
-    sys.exit(1) # Exit with an error code
+    sys.exit(1)  # Exit with an error code
 
 # --- Step 2: Dependencies are met, now we can import and run the main app ---
 import time
 import gi
+
 # Set version requirements for GTK4
 gi.require_version("Gtk", "4.0")
 import threading
 import torch
-from gi.repository import GLib, Gdk
+from gi.repository import GLib
 from gi.repository import Gtk
-from TTS.api import TTS
 import settings
 
 
@@ -66,7 +57,9 @@ class XttsApp(Gtk.Application):
 
             # First attempt: Normal loading
             try:
-                self.tts_model = KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                self.tts_model = (
+                    KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                )
                 model_loaded = True
                 print("Model loaded successfully via normal method!")
             except (ssl.SSLError, requests.exceptions.SSLError) as ssl_e:
@@ -76,6 +69,7 @@ class XttsApp(Gtk.Application):
                 # Second attempt: Try without SSL verification
                 try:
                     import urllib3
+
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     # Create a session with disabled SSL verification
                     session = requests.Session()
@@ -84,7 +78,9 @@ class XttsApp(Gtk.Application):
                     print("Trying alternative SSL configuration...")
                     original_context = ssl._create_default_https_context
                     ssl._create_default_https_context = ssl._create_unverified_context
-                    self.tts_model = KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                    self.tts_model = (
+                        KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                    )
                     ssl._create_default_https_context = original_context
                     model_loaded = True
                     print("Model loaded successfully via SSL bypass method!")
@@ -100,11 +96,16 @@ class XttsApp(Gtk.Application):
         except ssl.SSLError as ssl_e:
             print(f"SSL Error during model loading: {ssl_e}")
             print("This might be due to network restrictions or certificate issues.")
-            GLib.idle_add(self._on_model_loaded, "failure", f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。\n建议：\n1. 检查系统时间是否正确\n2. 尝试更新CA证书\n3. 使用VPN或代理\n4. 手动下载模型到本地")
+            GLib.idle_add(
+                self._on_model_loaded,
+                "failure",
+                f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。\n建议：\n1. 检查系统时间是否正确\n2. 尝试更新CA证书\n3. 使用VPN或代理\n4. 手动下载模型到本地",
+            )
         except Exception as e:
             print(f"Failed to load TTS model: {e}")
             print(f"Error type: {type(e).__name__}")
             import traceback
+
             traceback.print_exc()
             # Report failure back to the main thread
             GLib.idle_add(self._on_model_loaded, "failure", str(e))
@@ -135,14 +136,13 @@ class XttsApp(Gtk.Application):
             )
             dialog.connect("response", lambda d, r: d.destroy())
             dialog.show()
-        return False # Important: GLib.idle_add callbacks should return False to be removed
+        return False  # Important: GLib.idle_add callbacks should return False to be removed
 
     def on_activate(self, app):
         # Create the main window
         self.main_window = Gtk.ApplicationWindow(application=app)
         self.main_window.set_title("XTTS 语音生成")
         self.main_window.set_default_size(1200, 700)
-
 
         self.output_folder = None
 
@@ -151,7 +151,9 @@ class XttsApp(Gtk.Application):
         self.main_window.set_child(main_box)
 
         # --- Left Panel: History ---
-        history_frame = Gtk.Frame(label="生成历史", margin_start=6, margin_top=6, margin_bottom=6)
+        history_frame = Gtk.Frame(
+            label="生成历史", margin_start=6, margin_top=6, margin_bottom=6
+        )
         history_frame.set_size_request(250, -1)
         main_box.append(history_frame)
 
@@ -164,7 +166,12 @@ class XttsApp(Gtk.Application):
         history_scrolled_window.set_child(self.history_list_box)
 
         # --- Center Panel: Text Input ---
-        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6, margin_bottom=6)
+        center_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin_top=6,
+            margin_bottom=6,
+        )
         center_box.set_hexpand(True)
         main_box.append(center_box)
 
@@ -189,11 +196,20 @@ class XttsApp(Gtk.Application):
         center_box.append(self.generate_button)
 
         # --- Right Panel: Settings ---
-        settings_frame = Gtk.Frame(label="设置", margin_end=6, margin_top=6, margin_bottom=6)
+        settings_frame = Gtk.Frame(
+            label="设置", margin_end=6, margin_top=6, margin_bottom=6
+        )
         settings_frame.set_size_request(100, -1)
         main_box.append(settings_frame)
 
-        settings_grid = Gtk.Grid(margin_top=6, margin_bottom=6, margin_start=6, margin_end=6, row_spacing=12, column_spacing=6)
+        settings_grid = Gtk.Grid(
+            margin_top=6,
+            margin_bottom=6,
+            margin_start=6,
+            margin_end=6,
+            row_spacing=12,
+            column_spacing=6,
+        )
         settings_frame.set_child(settings_grid)
 
         # Language
@@ -236,11 +252,10 @@ class XttsApp(Gtk.Application):
         # Start the spinner and the background thread for model loading
         self.spinner.start()
         thread = threading.Thread(target=self._load_model)
-        thread.daemon = True  # Allows main thread to exit even if this thread is running
+        thread.daemon = (
+            True  # Allows main thread to exit even if this thread is running
+        )
         thread.start()
-
-
-
 
     def on_select_folder_clicked(self, button):
         dialog = Gtk.FileChooserNative(
@@ -303,26 +318,43 @@ class XttsApp(Gtk.Application):
         """
         try:
             print(f"Generating speech with voice: {speaker_path}")
-            en_pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M-v1.1-zh", model=False)
+            en_pipeline = KPipeline(
+                lang_code="a", repo_id="hexgrad/Kokoro-82M-v1.1-zh", model=False
+            )
+
             def en_callable(text):
                 return next(en_pipeline(text)).phonemes
 
-            zh_pipeline = KPipeline(lang_code="zh", repo_id="hexgrad/Kokoro-82M-v1.1-zh", model=self.tts_model, en_callable=en_callable)
-            generator = zh_pipeline(text=text, voice=speaker_path, speed=0.8*1.1)
+            zh_pipeline = KPipeline(
+                lang_code="zh",
+                repo_id="hexgrad/Kokoro-82M-v1.1-zh",
+                model=self.tts_model,
+                en_callable=en_callable,
+            )
+            generator = zh_pipeline(text=text, voice=speaker_path, speed=0.8 * 1.1)
             result = next(generator)
             wav = result.audio
             soundfile.write(file_path, wav, 24000)
 
             print(f"Speech generated successfully: {file_path}")
             # Pass back a dictionary with all the info
-            GLib.idle_add(self._on_generation_finished, "success", {"file_path": file_path, "text": text})
+            GLib.idle_add(
+                self._on_generation_finished,
+                "success",
+                {"file_path": file_path, "text": text},
+            )
         except ssl.SSLError as ssl_e:
             print(f"SSL Error during speech generation: {ssl_e}")
-            GLib.idle_add(self._on_generation_finished, "failure", f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。")
+            GLib.idle_add(
+                self._on_generation_finished,
+                "failure",
+                f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。",
+            )
         except Exception as e:
             print(f"Failed to generate speech: {e}")
             print(f"Error type: {type(e).__name__}")
             import traceback
+
             traceback.print_exc()
             GLib.idle_add(self._on_generation_finished, "failure", str(e))
 
@@ -357,11 +389,13 @@ class XttsApp(Gtk.Application):
     def _add_to_history(self, full_text):
         """Adds a new entry to the history list."""
         # Create a shortened label for display
-        short_text = full_text.replace('\n', ' ').strip()
+        short_text = full_text.replace("\n", " ").strip()
         if len(short_text) > 35:
             short_text = short_text[:35] + "..."
 
-        label = Gtk.Label(label=short_text, halign=Gtk.Align.START, margin_top=5, margin_bottom=5)
+        label = Gtk.Label(
+            label=short_text, halign=Gtk.Align.START, margin_top=5, margin_bottom=5
+        )
 
         row = Gtk.ListBoxRow()
         row.set_child(label)
@@ -373,14 +407,14 @@ class XttsApp(Gtk.Application):
 
     def _on_history_row_activated(self, list_box, row):
         """Callback for when a history item is clicked."""
-        if row and hasattr(row, 'full_text'):
+        if row and hasattr(row, "full_text"):
             full_text = row.full_text
             self.text_view.get_buffer().set_text(full_text)
+
 
 def main():
     app = XttsApp()
     app.run(sys.argv)
-
 
 
 if __name__ == "__main__":
