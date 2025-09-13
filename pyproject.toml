@@ -4,19 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "kokoro>=0.9.4",
-    "misaki[zh]>=0.9.4",
-    "pygobject>=3.52.3",
-    "pyinstaller>=6.15.0",
-    "pypinyin>=0.55.0",
-]
+dependencies = ["pygobject>=3.52.3", "pyinstaller>=6.15.0", "pypinyin>=0.55.0"]
 
 [project.optional-dependencies]
-tts = [
-    "coqui-tts>=0.27.1",
-    "coqpit-config>=0.2.1",
-]
+tts = ["misaki[zh]>=0.9.4", "kokoro>=0.9.4"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
@@ -25,6 +16,4 @@ typeCheckingMode = "basic"
 py-modules = ["main", "settings", "tts_installer"]
 
 [dependency-groups]
-dev = [
-    "pygobject-stubs>=2.13.0",
-]
+dev = ["pygobject-stubs>=2.13.0"]
