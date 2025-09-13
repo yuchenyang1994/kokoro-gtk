@@ -95,7 +95,7 @@ def check_and_install_tts():
     Returns True if TTS is available, False otherwise.
     """
     try:
-        import TTS
+        import kokoro
 
         print("TTS is already installed.")
         return True
