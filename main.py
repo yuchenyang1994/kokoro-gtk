@@ -1,8 +1,23 @@
 import sys
 import os
+import ssl
+import warnings
+import requests
+import tempfile
 
-# Set HF endpoint for Chinese users to download models
+# Set HF endpoint for Chinese users to download models - MUST be set before importing kokoro
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+from kokoro import KModel, KPipeline
+import soundfile
+
+# Configure SSL context to be more permissive for model downloads
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
 
 # --- Step 1: Perform dependency check before anything else ---
 # This is a blocking call that will use a temporary GTK loop if needed.
@@ -39,14 +54,58 @@ class XttsApp(Gtk.Application):
         Reports success or failure back to the main thread.
         """
         print("Starting to load TTS model in background thread...")
+        print(f"Using device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+        print(f"HF_ENDPOINT: {os.environ.get('HF_ENDPOINT', 'not set')}")
         try:
             # This is the time-consuming operation
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
-            # Schedule the UI update on the main GTK thread
-            GLib.idle_add(self._on_model_loaded, "success")
+            print(f"Attempting to load model from hexgrad/Kokoro-82M-v1.1-zh...")
+
+            # Try different approaches to load the model
+            model_loaded = False
+
+            # First attempt: Normal loading
+            try:
+                self.tts_model = KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                model_loaded = True
+                print("Model loaded successfully via normal method!")
+            except (ssl.SSLError, requests.exceptions.SSLError) as ssl_e:
+                print(f"SSL Error during normal model loading: {ssl_e}")
+                print("Attempting alternative loading methods...")
+
+                # Second attempt: Try without SSL verification
+                try:
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    # Create a session with disabled SSL verification
+                    session = requests.Session()
+                    session.verify = False
+                    # Try to load model with custom session (this might not work with all model loaders)
+                    print("Trying alternative SSL configuration...")
+                    original_context = ssl._create_default_https_context
+                    ssl._create_default_https_context = ssl._create_unverified_context
+                    self.tts_model = KModel(repo_id="hexgrad/Kokoro-82M-v1.1-zh").to(device).eval()
+                    ssl._create_default_https_context = original_context
+                    model_loaded = True
+                    print("Model loaded successfully via SSL bypass method!")
+                except Exception as alt_e:
+                    print(f"Alternative SSL method also failed: {alt_e}")
+
+            if model_loaded:
+                # Schedule the UI update on the main GTK thread
+                GLib.idle_add(self._on_model_loaded, "success")
+            else:
+                # All methods failed
+                raise Exception("All model loading methods failed")
+        except ssl.SSLError as ssl_e:
+            print(f"SSL Error during model loading: {ssl_e}")
+            print("This might be due to network restrictions or certificate issues.")
+            GLib.idle_add(self._on_model_loaded, "failure", f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。\n建议：\n1. 检查系统时间是否正确\n2. 尝试更新CA证书\n3. 使用VPN或代理\n4. 手动下载模型到本地")
         except Exception as e:
             print(f"Failed to load TTS model: {e}")
+            print(f"Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             # Report failure back to the main thread
             GLib.idle_add(self._on_model_loaded, "failure", str(e))
 
@@ -152,14 +211,12 @@ class XttsApp(Gtk.Application):
         speaker_label = Gtk.Label(label="音色", halign=Gtk.Align.START)
         settings_grid.attach(speaker_label, 0, 1, 1, 1)
 
-        speaker_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.speaker_entry = Gtk.Entry()
-        speaker_box.append(self.speaker_entry)
-
-        self.speaker_button = Gtk.Button(label="浏览...")
-        self.speaker_button.connect("clicked", self.select_speaker_clicked)
-        speaker_box.append(self.speaker_button)
-        settings_grid.attach(speaker_box, 1, 1, 1, 1)
+        speaker_list = Gtk.StringList()
+        speaker_list.append("zf_001")
+        speaker_list.append("zf_002")
+        self.speaker_combo = Gtk.DropDown.new(speaker_list, None)
+        self.speaker_combo.set_selected(0)
+        settings_grid.attach(self.speaker_combo, 1, 1, 1, 1)
 
         # Output Directory
         output_label = Gtk.Label(label="输出目录", halign=Gtk.Align.START)
@@ -182,25 +239,7 @@ class XttsApp(Gtk.Application):
         thread.daemon = True  # Allows main thread to exit even if this thread is running
         thread.start()
 
-    def select_speaker_clicked(self, button):
-        dialog = Gtk.FileChooserNative(
-            title="选择音色",
-            transient_for=self.get_active_window(),
-            action=Gtk.FileChooserAction.OPEN,
-            accept_label="_Select",
-            cancel_label="_Cancel",
-        )
 
-        def on_response(dialog_instance, response_id):
-            if response_id == Gtk.ResponseType.ACCEPT:
-                files = dialog_instance.get_files()
-                if files:
-                    self.speaker_file = files[0]
-                    self.speaker_entry.set_text(self.speaker_file.get_path())
-            dialog_instance.destroy()
-
-        dialog.connect("response", on_response)
-        dialog.show()
 
 
     def on_select_folder_clicked(self, button):
@@ -233,7 +272,11 @@ class XttsApp(Gtk.Application):
         if not text_content.strip():
             return
 
-        speaker_path = self.speaker_entry.get_text()
+        selected_speaker_index = self.speaker_combo.get_selected()
+        speaker_model = self.speaker_combo.get_model()
+        speaker_path = "zf_001"  # 默认音色
+        if speaker_model and selected_speaker_index != Gtk.INVALID_LIST_POSITION:
+            speaker_path = speaker_model.get_string(selected_speaker_index)
         output_path = self.output_entry.get_text()
         selected_index = self.lang_combo.get_selected()
         model = self.lang_combo.get_model()
@@ -254,21 +297,33 @@ class XttsApp(Gtk.Application):
             thread.daemon = True
             thread.start()
 
-    def _generate_speech_worker(self, text, language, speaker_wav, file_path):
+    def _generate_speech_worker(self, text, language, speaker_path, file_path):
         """
         Worker function to generate speech in a separate thread.
         """
         try:
-            self.tts_model.tts_to_file(
-                text=text,
-                language=language,
-                speaker_wav=speaker_wav,
-                file_path=file_path
-            )
+            print(f"Generating speech with voice: {speaker_path}")
+            en_pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M-v1.1-zh", model=False)
+            def en_callable(text):
+                return next(en_pipeline(text)).phonemes
+
+            zh_pipeline = KPipeline(lang_code="zh", repo_id="hexgrad/Kokoro-82M-v1.1-zh", model=self.tts_model, en_callable=en_callable)
+            generator = zh_pipeline(text=text, voice=speaker_path, speed=0.8*1.1)
+            result = next(generator)
+            wav = result.audio
+            soundfile.write(file_path, wav, 24000)
+
+            print(f"Speech generated successfully: {file_path}")
             # Pass back a dictionary with all the info
             GLib.idle_add(self._on_generation_finished, "success", {"file_path": file_path, "text": text})
+        except ssl.SSLError as ssl_e:
+            print(f"SSL Error during speech generation: {ssl_e}")
+            GLib.idle_add(self._on_generation_finished, "failure", f"SSL错误: {ssl_e}\n请检查网络连接或尝试使用VPN。")
         except Exception as e:
             print(f"Failed to generate speech: {e}")
+            print(f"Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             GLib.idle_add(self._on_generation_finished, "failure", str(e))
 
     def _on_generation_finished(self, status, message):
